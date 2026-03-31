@@ -9,35 +9,50 @@ async function getCoordinatesFromPostcode(postcode: string) {
   if (data.status === 200) {
     return { lat: data.result.latitude, lng: data.result.longitude };
   } else {
-    throw new Error("Invalid postcode");
+    throw new Error("Invalid postcode. Please check your starting location.");
   }
 }
 
-// Helper: Fetch bakeries from Overpass API
-async function fetchBakeriesInRadius(
+// Helper: Fetch bakeries with a built-in RETRY mechanism
+async function fetchBakeriesWithRetry(
   lat: number,
   lng: number,
   radiusInMeters: number,
+  retries = 3,
+  delay = 2000
 ) {
   const query = `
     [out:json][timeout:25];
-    (
-      node["shop"="bakery"](around:${radiusInMeters / 4},${lat},${lng});
-    );
+    (node["shop"="bakery"](around:${radiusInMeters},${lat},${lng}););
     out body;
   `;
   const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-  const response = await fetch(url);
-  const data = await response.json();
-  return data.elements;
+
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url);
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.remark && data.remark.includes("timeout")) throw new Error("Server timeout");
+        return data.elements || [];
+      }
+
+      // If server is busy (429) or error (500+), we retry
+      if (response.status === 429 || response.status >= 500) {
+        console.warn(`Attempt ${i + 1} failed. Retrying in ${delay}ms...`);
+      } else {
+        throw new Error("Failed to fetch bakery data.");
+      }
+    } catch (err) {
+      if (i === retries - 1) throw err; // Out of retries, throw the error
+    }
+    // Wait before next attempt
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
 }
 
-// Helper: Select N stops
-function selectStops(allBakeries: any[], numStops: number) {
-  return allBakeries.slice(0, numStops);
-}
-
-function getQueryParam(router, key: string, fallback: any) {
+function getQueryParam(router: any, key: string, fallback: any) {
   if (router.query && router.query[key]) {
     if (typeof fallback === "number") return Number(router.query[key]);
     return router.query[key];
@@ -47,149 +62,94 @@ function getQueryParam(router, key: string, fallback: any) {
 
 export default function RouteResults() {
   const router = useRouter();
-  const startAddress = getQueryParam(router, "startAddress", "123 Main St");
+  const startAddress = getQueryParam(router, "startAddress", "");
   const numberOfStops = getQueryParam(router, "numberOfStops", 3);
   const maxDistance = getQueryParam(router, "maxDistance", 5);
 
   const [bakeries, setBakeries] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
+    if (!router.isReady || !startAddress) return;
+
     async function generateRoute() {
       setLoading(true);
       setError(null);
       try {
-        // 1. Geocode postcode to lat/lng
         const { lat, lng } = await getCoordinatesFromPostcode(startAddress);
-        // 2. Fetch bakeries in radius (convert km to meters)
-        const allBakeries = await fetchBakeriesInRadius(
-          lat,
-          lng,
-          Number(maxDistance) * 1000,
-        );
-        // 3. Filter to N stops, handle not enough bakeries
+        const radiusMeters = Number(maxDistance) * 1000;
+        
+        const allBakeries = await fetchBakeriesWithRetry(lat, lng, radiusMeters);
+        
         if (allBakeries.length === 0) {
-          setBakeries([]);
-          setError(
-            "No bakeries found within the selected distance. Try increasing the distance or changing your starting location.",
-          );
-        } else if (allBakeries.length < Number(numberOfStops)) {
-          setBakeries(allBakeries);
-          setError(
-            `Only ${allBakeries.length} baker${allBakeries.length === 1 ? "y" : "ies"} found within the selected distance. Showing all available stops.`,
-          );
+          setError("No bakeries found nearby. Try a larger radius!");
         } else {
-          const selected = selectStops(allBakeries, Number(numberOfStops));
-          setBakeries(selected);
+          setBakeries(allBakeries.slice(0, Number(numberOfStops)));
         }
       } catch (err: any) {
-        setError(err.message || "Failed to generate route");
+        setError("The map server is very busy right now. Please refresh or try again in a minute.");
       } finally {
         setLoading(false);
       }
     }
+
     generateRoute();
-  }, [startAddress, numberOfStops, maxDistance]);
+  }, [router.isReady, startAddress, numberOfStops, maxDistance]);
 
   const caloriesIn = numberOfStops * 400;
   const caloriesBurned = maxDistance * 60;
 
-  // Google Maps Directions URL (if bakeries available)
-  const mapsUrl =
-    bakeries.length > 0
-      ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(startAddress)}&destination=${encodeURIComponent(bakeries[bakeries.length - 1].lat + "," + bakeries[bakeries.length - 1].lon)}&waypoints=${bakeries
-          .slice(0, -1)
-          .map((b) => encodeURIComponent(b.lat + "," + b.lon))
-          .join("|")}`
-      : "";
+  // Fixed Google Maps Link
+  const mapsUrl = bakeries.length > 0 
+    ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(startAddress)}&destination=${encodeURIComponent(bakeries[bakeries.length - 1].lat + "," + bakeries[bakeries.length - 1].lon)}&waypoints=${bakeries.slice(0, -1).map(b => b.lat + "," + b.lon).join("|")}&travelmode=walking`
+    : "#";
 
   return (
-    <section className="max-w-2xl mx-auto bg-white/80 rounded-xl shadow-lg p-8 mt-8">
-      <h2 className="text-2xl font-bold mb-4 text-brown-900">
-        Your Pastry Crawl Route
-      </h2>
-      <p className="mb-6 text-brown-700 italic">
-        We hope you’re bready for this adventure!
-      </p>
-      {/* Calorie Calculator */}
-      <div className="flex flex-col sm:flex-row gap-4 mb-8 items-center justify-center">
-        <div className="flex-1 bg-butter rounded-lg p-4 text-center shadow">
-          <div className="text-3xl font-bold text-brown-900">{caloriesIn}</div>
-          <div className="text-brown-800">Estimated Calories In</div>
+    <section className="max-w-2xl mx-auto bg-white rounded-xl shadow-lg p-8 mt-8 border-t-4 border-orange-400">
+      <h2 className="text-2xl font-bold mb-4 text-slate-800">Your Pastry Route</h2>
+      
+      {loading ? (
+        <div className="text-center py-10">
+          <div className="animate-bounce text-4xl mb-4">🥐</div>
+          <p className="text-slate-600 font-medium">Scanning the area for fresh carbs...</p>
         </div>
-        <div className="flex-1 bg-butter rounded-lg p-4 text-center shadow">
-          <div className="text-3xl font-bold text-brown-900">
-            {caloriesBurned}
-          </div>
-          <div className="text-brown-800">Estimated Calories Burned</div>
-        </div>
-      </div>
-      <div className="mb-8 text-center">
-        <span className="inline-block bg-butter-dark text-brown-900 px-4 py-2 rounded-full font-semibold shadow">
-          Guilt-O-Meter: {caloriesIn - caloriesBurned} net calories
-        </span>
-      </div>
-
-      {/* Loading/Error States */}
-      {loading && (
-        <div className="text-center text-brown-700 mb-8">
-          Generating your pastry crawl route...
-        </div>
-      )}
-      {error && (
-        <div
-          className={`text-center mb-8 ${bakeries.length === 0 ? "text-red-600" : "text-brown-700"}`}
-        >
+      ) : error ? (
+        <div className="bg-red-50 text-red-700 p-4 rounded-lg mb-6 border border-red-100 text-center">
           {error}
         </div>
-      )}
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="bg-amber-50 p-4 rounded-lg text-center">
+              <span className="block text-2xl font-bold text-amber-700">{caloriesIn}</span>
+              <span className="text-xs uppercase text-amber-600 font-bold">Calories In</span>
+            </div>
+            <div className="bg-blue-50 p-4 rounded-lg text-center">
+              <span className="block text-2xl font-bold text-blue-700">{caloriesBurned}</span>
+              <span className="text-xs uppercase text-blue-600 font-bold">Calories Burned</span>
+            </div>
+          </div>
 
-      {/* Bakery List */}
-      {!loading && bakeries.length > 0 && (
-        <div className="mb-8">
-          <h3 className="text-xl font-bold mb-2 text-brown-900">
-            Bakery Stops
-          </h3>
-          <ul className="space-y-4">
+          <ul className="space-y-3 mb-8">
             {bakeries.map((bakery, idx) => (
-              <li
-                key={bakery.id || idx}
-                className="bg-cream rounded-lg p-4 shadow flex flex-col sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div>
-                  <div className="font-bold text-brown-900">
-                    {bakery.tags?.name || "Unnamed Bakery"}
-                  </div>
-                  <div className="text-brown-800">
-                    Lat: {bakery.lat}, Lon: {bakery.lon}
-                  </div>
-                  <div className="text-brown-700 italic">
-                    {bakery.tags?.description || ""}
-                  </div>
-                </div>
-                <div className="mt-2 sm:mt-0 text-brown-700">
-                  Stop #{idx + 1}
-                </div>
+              <li key={idx} className="flex items-center gap-4 p-3 bg-slate-50 rounded-md border border-slate-100">
+                <span className="bg-orange-400 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">{idx + 1}</span>
+                <span className="font-semibold text-slate-700">{bakery.tags?.name || "Artisan Bakery"}</span>
               </li>
             ))}
           </ul>
-        </div>
-      )}
 
-      {/* Map Integration */}
-      {!loading && !error && bakeries.length > 0 && (
-        <div className="mb-8">
-          <h3 className="text-xl font-bold mb-2 text-brown-900">Route Map</h3>
           <a
             href={mapsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-block bg-butter hover:bg-butter-dark text-brown-900 font-semibold py-3 px-6 rounded-lg shadow focus:outline-none focus-visible:ring-4 focus-visible:ring-brown-400 min-w-[120px] min-h-[48px] text-lg"
+            className="block text-center bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 px-6 rounded-lg transition-colors shadow-md"
           >
-            Open Route in Google Maps
+            Open in Google Maps
           </a>
-        </div>
+        </>
       )}
     </section>
   );
