@@ -7,16 +7,53 @@ interface Step1Props {
   error?: string | null;
 }
 
-// Fetch address suggestions from OpenStreetMap Nominatim API, UK only, include POIs/shops, and show all addresses for a given postcode
+// Fetch address suggestions from OpenStreetMap Nominatim API, UK only, limit by radius using viewbox for postcodes
 async function fetchAddressSuggestions(
   query: string,
 ): Promise<{ suggestions: string[]; error?: string }> {
   if (query.length < 3) return { suggestions: [] };
-  // UK postcode regex (simple, covers most cases)
   const postcodeRegex = /^[A-Z]{1,2}\d{1,2}[A-Z]? ?\d[A-Z]{2}$/i;
   let url = "";
+  // Helper to get lat/lon for a postcode using postcodes.io
+  async function getLatLonForPostcode(
+    postcode: string,
+  ): Promise<{ lat: number; lon: number } | null> {
+    try {
+      const res = await fetch(
+        `https://api.postcodes.io/postcodes/${encodeURIComponent(postcode)}`,
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (
+        data.status === 200 &&
+        data.result &&
+        data.result.latitude &&
+        data.result.longitude
+      ) {
+        return { lat: data.result.latitude, lon: data.result.longitude };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   if (postcodeRegex.test(query.trim())) {
-    url = `https://nominatim.openstreetmap.org/search?postalcode=${encodeURIComponent(query.trim())}&countrycodes=gb&format=json&addressdetails=1&namedetails=1&extratags=1&limit=50`;
+    // Limit radius: use a small bounding box (e.g. ±0.01 degrees ~1km)
+    const latLon = await getLatLonForPostcode(query.trim());
+    if (latLon) {
+      const delta = 0.01; // ~1km
+      const viewbox = [
+        latLon.lon - delta,
+        latLon.lat - delta,
+        latLon.lon + delta,
+        latLon.lat + delta,
+      ].join(",");
+      url = `https://nominatim.openstreetmap.org/search?postalcode=${encodeURIComponent(query.trim())}&countrycodes=gb&format=json&addressdetails=1&namedetails=1&extratags=1&limit=50&viewbox=${viewbox}&bounded=1`;
+    } else {
+      // fallback to normal postcode search if lat/lon lookup fails
+      url = `https://nominatim.openstreetmap.org/search?postalcode=${encodeURIComponent(query.trim())}&countrycodes=gb&format=json&addressdetails=1&namedetails=1&extratags=1&limit=50`;
+    }
   } else {
     url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&namedetails=1&extratags=1&limit=50&countrycodes=gb`;
   }
@@ -32,7 +69,6 @@ async function fetchAddressSuggestions(
         error: "Address lookup failed. Please try again later.",
       };
     }
-    // Try to parse JSON, but handle HTML/XML error responses
     let data;
     try {
       data = await res.json();
@@ -86,14 +122,19 @@ export default function Step1StartAddress({
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Validate postcode on change
+  // Only trigger lookup when a valid, complete postcode is entered
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value.toUpperCase();
     onChange(val);
     setTouched(false);
     setLookupError(null);
     setSuggestions([]);
-    if (postcodeRegex.test(val.trim())) {
+    // Only lookup if the postcode is valid and complete (no trailing space, length 5-8)
+    if (
+      postcodeRegex.test(val.trim()) &&
+      val.trim().length >= 5 &&
+      val.trim().length <= 8
+    ) {
       setLoading(true);
       fetchAddressSuggestions(val.trim()).then((res) => {
         setLoading(false);
