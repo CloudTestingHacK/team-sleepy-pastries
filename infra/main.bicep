@@ -3,7 +3,7 @@ param location string = resourceGroup().location
 
 // Application Insights
 resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
-  name: 'ai-\${uniqueString(resourceGroup().id)}'
+  name: 'ai-${uniqueString(resourceGroup().id)}'
   location: location
   kind: 'web'
   properties: {
@@ -13,7 +13,7 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
 
 // App Service Plan
 resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
-  name: 'plan-\${uniqueString(resourceGroup().id)}'
+  name: 'plan-${uniqueString(resourceGroup().id)}'
   location: location
   sku: {
     name: 'S1'
@@ -24,7 +24,7 @@ resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
 
 // Web App
 resource webApp 'Microsoft.Web/sites@2023-01-01' = {
-  name: 'app-\${uniqueString(resourceGroup().id)}'
+  name: 'app-${uniqueString(resourceGroup().id)}'
   location: location
   properties: {
     serverFarmId: appServicePlan.id
