@@ -9,7 +9,7 @@ export default function Step3MaxDistance({ value, onChange }: Step3Props) {
   return (
     <div>
       <label htmlFor="maxDistance" className="block text-lg font-semibold mb-2">
-        Max Walking Distance (km)
+        Max distance from starting location (km)
       </label>
       <input
         id="maxDistance"

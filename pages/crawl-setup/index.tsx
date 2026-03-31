@@ -47,39 +47,11 @@ export default function CrawlSetup() {
     switch (currentStep) {
       case 1:
         return (
-          <>
-            <Step1StartAddress value={startAddress} onChange={setStartAddress} error={errors} />
-            {errors && (
-              <p
-                id="startAddress-error"
-                className="text-red-600 mt-2"
-                role="alert"
-                aria-live="assertive"
-                tabIndex={-1}
-                ref={errorRef}
-              >
-                {errors}
-              </p>
-            )}
-          </>
+          <Step1StartAddress value={startAddress} onChange={setStartAddress} error={errors} />
         );
       case 2:
         return (
-          <>
-            <Step2NumberOfStops value={numberOfStops} onChange={setNumberOfStops} error={errors} />
-            {errors && (
-              <p
-                id="numberOfStops-error"
-                className="text-red-600 mt-2"
-                role="alert"
-                aria-live="assertive"
-                tabIndex={-1}
-                ref={errorRef}
-              >
-                {errors}
-              </p>
-            )}
-          </>
+          <Step2NumberOfStops value={numberOfStops} onChange={setNumberOfStops} error={errors} />
         );
       case 3:
         return <Step3MaxDistance value={maxDistance} onChange={setMaxDistance} />;
