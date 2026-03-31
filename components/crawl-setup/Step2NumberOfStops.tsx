@@ -9,6 +9,9 @@ interface Step2Props {
 export default function Step2NumberOfStops({ value, onChange, error }: Step2Props) {
   return (
     <div>
+      {error && (
+        <p id="numberOfStops-error" className="text-red-600 mb-2" role="alert" aria-live="assertive">{error}</p>
+      )}
       <label htmlFor="numberOfStops" className="block text-lg font-semibold mb-2">
         Number of Pastry Stops
       </label>
@@ -24,9 +27,6 @@ export default function Step2NumberOfStops({ value, onChange, error }: Step2Prop
         aria-describedby={error ? 'numberOfStops-error' : undefined}
       />
       <p className="mt-2 text-brown-700 italic">You're the apple of my pie, how many bakeries?</p>
-      {error && (
-        <p id="numberOfStops-error" className="text-red-600 mt-2" role="alert">{error}</p>
-      )}
     </div>
   );
 }
