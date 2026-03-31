@@ -28,6 +28,15 @@ async function fetchBakeriesInRadius(
   `;
   const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
   const response = await fetch(url);
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    // Log the actual response for debugging
+    const text = await response.text();
+    console.error("Overpass API returned non-JSON response:", text);
+    throw new Error(
+      "The bakery location service is temporarily unavailable or rate-limited. Please try again later."
+    );
+  }
   const data = await response.json();
   return data.elements;
 }
