@@ -1,8 +1,18 @@
+
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function Home() {
   return (
-    <section className="max-w-xl mx-auto text-center bg-white/80 rounded-xl shadow-lg p-8 mt-8">
+    <section className="max-w-xl mx-auto text-center bg-white/80 rounded-xl shadow-lg p-8 mt-8 flex flex-col items-center">
+      <Image
+        src="/pastry_crawl_logo.png"
+        alt="The Rolling Scone Logo"
+        width={96}
+        height={96}
+        className="mb-4 rounded-full shadow"
+        priority
+      />
       <h2 className="text-3xl font-extrabold mb-4 text-brown-900">Welcome to The Rolling Scone!</h2>
       <p className="mb-6 text-lg text-brown-800">
         Like a pub crawl, but sweeter. Swap the pints for pastries and the hangovers for sugar rushes!
